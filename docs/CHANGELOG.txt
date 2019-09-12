@@ -38,15 +38,16 @@ DOCKING FEATURES
 - Added Docking system: [BETA] (#2109, #351)
   - Added ImGuiConfigFlags_DockingEnable flag to enable Docking.
     Set with `io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;`.
-  - Added DockSpace() API.
+  - Added DockSpace(), DockSpaceOverViewport() API.
   - Added ImGuiDockNodeFlags flags for DockSpace().
-  - Added SetNextWindowDock(), SetNextWindowClass() API.
-  - Added GetWindowDockId(), IsWindowDocked() API.
+  - Added SetNextWindowDockID(), SetNextWindowClass() API.
+  - Added GetWindowDockID(), IsWindowDocked() API.
   - Added ImGuiWindowFlags_NoDocking window flag to disable the possibility for a window to be docked.
     Popup, Menu and Child windows always have the ImGuiWindowFlags_NoDocking flag set.
+  - Added ImGuiWindowClass to specify advanced docking/viewport related flags via SetNextWindowClass().
   - Added io.ConfigDockingNoSplit option.
   - Added io.ConfigDockingWithShift option.
-  - Added io.ConfigDockingTabBarOnSingleWindows option.
+  - Added io.ConfigDockingAlwaysTabBar option.
   - Added io.ConfigDockingTransparentPayload option.
   - Style: Added ImGuiCol_DockingPreview, ImGuiCol_DockingEmptyBg colors.
   - Demo: Added "DockSpace" example app showcasing use of explicit dockspace nodes.
@@ -98,7 +99,53 @@ Other changes:
 
 
 -----------------------------------------------------------------------
- VERSION 1.72 (In Progress)
+ VERSION 1.73 WIP (In Progress)
+-----------------------------------------------------------------------
+
+Other Changes:
+- ColorPicker: Made rendering aware of global style alpha of the picker can be faded out. (#2711)
+  Note that some elements won't accurately fade down with the same intensity, and the color wheel
+  when enabled will have small overlap glitches with (style.Alpha < 1.0).
+- ColorEdit: Disable Hue edit when Saturation==0 instead of letting Hue values jump around.
+- TabBar: fixed ScrollToBar request creating bouncing loop when tab is larger than available space.
+- TabBar: fixed single-tab not shrinking their width down.
+- TabBar: feed desired width (sum of unclipped tabs width) into layout system to allow for auto-resize. (#2768)
+  (before 1.71 tab bars fed the sum of current width which created feedback loops in certain situations).
+- TabBar: improved shrinking for large number of tabs to avoid leaving extraneous space on the right side.
+  Individuals tabs are given integer-rounded width and remainder is spread between tabs left-to-right.
+- SliderScalar: Improved assert when using U32 or U64 types with a large v_max value. (#2765) [@loicmouton]
+- DragInt, DragFloat, DragScalar: Using (v_min > v_max) allows locking any edit to the value.
+- ImDrawList: clarified the name of many parameters so reading the code is a little easier. (#2740)
+- Using offsetof() when available in C++11. Avoids Clang sanitizer complaining about old-style macros. (#94)
+- Added a mechanism to compact/free the larger allocations of unused windows (buffers are compacted when
+  a window is unused for 60 seconds, as per io.ConfigWindowsMemoryCompactTimer = 60.0f). Note that memory
+  usage has never been reported as a problem, so this is merely a touch of overzealous luxury. (#2636)
+- Backends: DX11: Fixed GSGetShader() call not passing an initialized instance count,
+  would generally make the debug layer complain (Added in 1.72).
+- Backends: Vulkan: Added support for specifying multisample count.
+  Set ImGui_ImplVulkan_InitInfo::MSAASamples to one of the VkSampleCountFlagBits values
+  to use, default is non-multisampled as before. (#2705, #2706) [@vilya]
+- Misc: Updated stb_rect_pack from 0.99 to 1.00 (fixes by @rygorous: off-by-1 bug in best-fit heuristic,
+  fix handling of rectangles too large to fit inside texture). (#2762) [@tido64]
+
+
+-----------------------------------------------------------------------
+ VERSION 1.72b (Released 2019-07-31)
+-----------------------------------------------------------------------
+
+Other Changes:
+
+- Nav, Scrolling: Fixed programmatic scroll leading to a slightly incorrect scroll offset when
+  the window has decorations or a menu-bar (broken in 1.71). This was mostly noticeable when
+  a keyboard/gamepad movement led to scrolling the view, or using e.g. SetScrollHereY() function.
+- Nav: Made hovering non-MenuItem Selectable not re-assign the source item for keyboard navigation.
+- Nav: Fixed an issue with NavFlattened window flag (beta) where widgets not entirely fitting
+  in child window (often selectables because of their protruding sides) would be not considered
+  as entry points to to navigate toward the child window. (#787)
+
+
+-----------------------------------------------------------------------
+ VERSION 1.72 (Released 2019-07-27)
 -----------------------------------------------------------------------
 
 Breaking Changes:
@@ -107,15 +154,71 @@ Breaking Changes:
   - IsItemHoveredRect(), IsPosHoveringAnyWindow(), IsMouseHoveringAnyWindow(), IsMouseHoveringWindow() functions.
   - IMGUI_ONCE_UPON_A_FRAME macro.
   If you were still using the old names, read "API Breaking Changes" section of imgui.cpp to find out
-  the new names and equivalent.
+  the new names or equivalent features.
+- Renamed ImFontAtlas::CustomRect to ImFontAtlasCustomRect. Kept redirection typedef (will obsolete).
+- Removed TreeAdvanceToLabelPos() which is rarely used and only does SetCursorPosX(GetCursorPosX() + GetTreeNodeToLabelSpacing()).
+  Kept redirection function (will obsolete). (#581, #324)
 
 Other Changes:
+- Scrolling: Made mouse-wheel scrolling lock the underlying window until the mouse is moved again or
+  until a short delay expires (~2 seconds). This allow uninterrupted scroll even if child windows are
+  passing under the mouse cursor. (#2604)
+- Scrolling: Made it possible for mouse wheel and navigation-triggered scrolling to override a call to
+  SetScrollX()/SetScrollY(), making it possible to use a simpler stateless pattern for auto-scrolling:
+     // (Submit items..)
+     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())  // If scrolling at the already at the bottom..
+         ImGui::SetScrollHereY(1.0f);                    // ..make last item fully visible
+- Scrolling: Added SetScrollHereX(), SetScrollFromPosX() for completeness. (#1580) [@kevreco]
+- Scrolling: Mouse wheel scrolling while hovering a child window is automatically forwarded to parent window
+  if ScrollMax is zero on the scrolling axis.
+  Also still the case if ImGuiWindowFlags_NoScrollWithMouse is set (not new), but previously the forwarding
+  would be disabled if ImGuiWindowFlags_NoScrollbar was set on the child window, which is not the case
+  any more. Forwarding can still be disabled by setting ImGuiWindowFlags_NoInputs. (amend #1502, #1380).
 - Window: Fixed InnerClipRect right-most coordinates using wrong padding setting (introduced in 1.71).
+- Window: Fixed old SetWindowFontScale() api value from not being inherited by child window. Added
+  comments about the right way to scale your UI (load a font at the right side, rebuild atlas, scale style).
+- Scrollbar: Avoid overlapping the opposite side when window (often a child window) is forcibly too small.
+- Combo: Hide arrow when there's not enough space even for the square button.
+- InputText: Testing for newly added ImGuiKey_KeyPadEnter key. (#2677, #2005) [@amc522]
+- TabBar: Fixed unfocused tab bar separator color (was using ImGuiCol_Tab, should use ImGuiCol_TabUnfocusedActive).
+- Columns: Fixed a regression from 1.71 where the right-side of the contents rectangle within each column
+  would wrongly use a WindowPadding.x instead of ItemSpacing.x like it always did. (#125, #2666)
+- Columns: Made the right-most edge reaches up to the clipping rectangle (removing half of WindowPadding.x
+  worth of asymmetrical/extraneous padding, note that there's another half that conservatively has to offset
+  the right-most column, otherwise it's clipping width won't match the other columns). (#125, #2666)
+- Columns: Improved honoring alignment with various values of ItemSpacing.x and WindowPadding.x. (#125, #2666)
+- Columns: Made GetColumnOffset() and GetColumnWidth() behave when there's no column set, consistently with
+  other column functions. (#2683)
+- InputTextMultiline: Fixed vertical scrolling tracking glitch.
 - Word-wrapping: Fixed overzealous word-wrapping when glyph edge lands exactly on the limit. Because
   of this, auto-fitting exactly unwrapped text would make it wrap. (fixes initial 1.15 commit, 78645a7d).
+- Style: Attenuated default opacity of ImGuiCol_Separator in Classic and Light styles.
+- Style: Added style.ColorButtonPosition (left/right, defaults to ImGuiDir_Right) to move the color button
+  of ColorEdit3/ColorEdit4 functions to either side of the inputs.
+- IO: Added ImGuiKey_KeyPadEnter and support in various back-ends (previously back-ends would need to
+  specifically redirect key-pad keys to their regular counterpart). This is a temporary attenuating measure
+  until we actually refactor and add whole sets of keys into the ImGuiKey enum. (#2677, #2005) [@amc522]
+- Misc: Made Button(), ColorButton() not trigger an "edited" event leading to IsItemDeactivatedAfterEdit()
+  returning true. This also effectively make ColorEdit4() not incorrect trigger IsItemDeactivatedAfterEdit()
+  when clicking the color button to open the picker popup. (#1875)
+- Misc: Added IMGUI_DISABLE_METRICS_WINDOW imconfig.h setting to explicitly compile out ShowMetricsWindow().
+- Debug, Metrics: Added "Tools->Item Picker" tool which allow clicking on a widget to break in the debugger
+  within the item code. The tool calls IM_DEBUG_BREAK() which can be redefined in imconfig.h if needed.
 - ImDrawList: Fixed CloneOutput() helper crashing. (#1860) [@gviot]
-- ImDrawListSplitter, ImDrawList::ChannelsSplit(): Fixed an issue with merging draw commands between
+- ImDrawList::ChannelsSplit(), ImDrawListSplitter: Fixed an issue with merging draw commands between
   channel 0 and 1. (#2624)
+- ImDrawListSplitter: Fixed memory leak when using low-level split api (was not affecting ImDrawList api,
+  also this type was added in 1.71 and not advertised as a public-facing feature).
+- Fonts: binary_to_compressed_c.cpp: Display an error message if failing to open/read the input font file.
+- Demo: Log, Console: Using a simpler stateless pattern for auto-scrolling.
+- Demo: Widgets: Showing how to use the format parameter of Slider/Drag functions to display the name
+  of an enum value instead of the underlying integer value.
+- Backends: DX10/DX11: Backup, clear and restore Geometry Shader is any is bound when calling renderer.
+- Backends: DX11: Clear Hull Shader, Domain Shader, Compute Shader before rendering. Not backing/restoring them.
+- Backends: OSX: Disabled default native Mac clipboard copy/paste implementation in core library (added in 1.71),
+  because it needs application to be linked with '-framework ApplicationServices'. It can be explicitly
+  enabled back by using '#define IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS' in imconfig.h. Re-added
+  equivalent using NSPasteboard api in the imgui_impl_osx.mm experimental back-end. (#2546)
 - Backends: SDL2: Added dummy ImGui_ImplSDL2_InitForD3D() function to make D3D support more visible.
   (#2482, #2632) [@josiahmanson]
 - Examples: Added SDL2+DirectX11 example application. (#2632, #2612, #2482) [@vincenthamm]
@@ -297,7 +400,7 @@ Breaking Changes:
 - Renamed ColorEdit/ColorPicker's ImGuiColorEditFlags_RGB/_HSV/_HEX flags to respectively
   ImGuiColorEditFlags_DisplayRGB/_DisplayHSV/_DisplayHex. This is because the addition of
   new flag ImGuiColorEditFlags_InputHSV makes the earlier one ambiguous.
-  Keep redirection enum values (will obsolete). (#2384) [@haldean]
+  Kept redirection enum values (will obsolete). (#2384) [@haldean]
 - Renamed GetOverlayDrawList() to GetForegroundDrawList(). Kept redirection function (will obsolete). (#2391)
 
 Other Changes:
@@ -442,7 +545,7 @@ Breaking Changes:
   side-effect because the window would have ID zero. In particular it is causing problems in viewport/docking branches.
 - Renamed io.ConfigResizeWindowsFromEdges to io.ConfigWindowsResizeFromEdges and removed its [Beta] mark.
   The addition of new configuration options in the Docking branch is pushing for a little reorganization of those names.
-- Renamed ImFontAtlas::GlyphRangesBuilder to ImFontGlyphRangesBuilder. Keep redirection typedef (will obsolete).
+- Renamed ImFontAtlas::GlyphRangesBuilder to ImFontGlyphRangesBuilder. Kept redirection typedef (will obsolete).
 
 Other Changes:
 
@@ -1184,7 +1287,7 @@ Breaking Changes:
 - Removed `IsItemRectHovered()`, `IsWindowRectHovered()` recently introduced in 1.51 which were merely the more consistent/correct names for the above functions which are now obsolete anyway. (#1382)
 - Changed `IsWindowHovered()` default parameters behavior to return false if an item is active in another window (e.g. click-dragging item from another window to this window). You can use the newly introduced IsWindowHovered() flags to requests this specific behavior if you need it. (#1382)
 - Renamed imconfig.h's `IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCS`/`IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCS` to `IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS`/`IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS` for consistency.
-- Renamed ImFont::Glyph to ImFontGlyph. Keep redirection typedef (will obsolete).
+- Renamed ImFont::Glyph to ImFontGlyph. Kept redirection typedef (will obsolete).
 
 Other Changes:
 
