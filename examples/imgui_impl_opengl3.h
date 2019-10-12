@@ -24,22 +24,7 @@
 
 #pragma once
 
-<<<<<<< HEAD
-// Specific OpenGL versions
-//#define IMGUI_IMPL_OPENGL_ES2     // Auto-detected on Emscripten
-//#define IMGUI_IMPL_OPENGL_ES3     // Auto-detected on iOS/Android
-
-// Set default OpenGL3 loader to be gl3w
-#if !defined(IMGUI_IMPL_OPENGL_LOADER_GL3W)     \
- && !defined(IMGUI_IMPL_OPENGL_LOADER_GLEW)     \
- && !defined(IMGUI_IMPL_OPENGL_LOADER_GLAD)     \
- && !defined(IMGUI_IMPL_OPENGL_LOADER_CUSTOM)
-#define IMGUI_IMPL_OPENGL_LOADER_GLEW
-#endif
-
-=======
 // Backend API
->>>>>>> bf4880f6a2ba18b3f082a52a6e1e257e19e363f6
 IMGUI_IMPL_API bool     ImGui_ImplOpenGL3_Init(const char* glsl_version = NULL);
 IMGUI_IMPL_API void     ImGui_ImplOpenGL3_Shutdown();
 IMGUI_IMPL_API void     ImGui_ImplOpenGL3_NewFrame();
@@ -74,7 +59,7 @@ IMGUI_IMPL_API void     ImGui_ImplOpenGL3_DestroyDeviceObjects();
             #error "Cannot detect OpenGL loader!"
         #endif
     #else
-        #define IMGUI_IMPL_OPENGL_LOADER_GL3W       // Default to GL3W
+        #define IMGUI_IMPL_OPENGL_LOADER_GLEW       // Default to GL3W
     #endif
 #endif
 
