@@ -1,4 +1,4 @@
-// dear imgui, v1.74
+// dear imgui, v1.75 WIP
 // (widgets code)
 
 /*
@@ -1266,21 +1266,14 @@ void ImGui::SeparatorEx(ImGuiSeparatorFlags flags)
         // We don't provide our width to the layout so that it doesn't get feed back into AutoFit
         const ImRect bb(ImVec2(x1, window->DC.CursorPos.y), ImVec2(x2, window->DC.CursorPos.y + thickness_draw));
         ItemSize(ImVec2(0.0f, thickness_layout));
-        if (!ItemAdd(bb, 0))
+        const bool item_visible = ItemAdd(bb, 0);
+        if (item_visible)
         {
-            if (columns)
-            {
-                PopColumnsBackground();
-                columns->LineMinY = window->DC.CursorPos.y;
-            }
-            return;
+            // Draw
+            window->DrawList->AddLine(bb.Min, ImVec2(bb.Max.x, bb.Min.y), GetColorU32(ImGuiCol_Separator));
+            if (g.LogEnabled)
+                LogRenderedText(&bb.Min, "--------------------------------");
         }
-
-        // Draw
-        window->DrawList->AddLine(bb.Min, ImVec2(bb.Max.x, bb.Min.y), GetColorU32(ImGuiCol_Separator));
-        if (g.LogEnabled)
-            LogRenderedText(&bb.Min, "--------------------------------");
-
         if (columns)
         {
             PopColumnsBackground();
@@ -6981,6 +6974,12 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
         return false;
     }
 
+    // Store into ImGuiTabItemFlags_NoCloseButton, also honor ImGuiTabItemFlags_NoCloseButton passed by user (although not documented)
+    if (flags & ImGuiTabItemFlags_NoCloseButton)
+        p_open = NULL;
+    else if (p_open == NULL)
+        flags |= ImGuiTabItemFlags_NoCloseButton;
+
     // Calculate tab contents size
     ImVec2 size = TabItemCalcSize(label, p_open != NULL);
 
@@ -6997,9 +6996,6 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
     }
     tab_bar->LastTabItemIdx = (short)tab_bar->Tabs.index_from_ptr(tab);
     tab->ContentWidth = size.x;
-
-    if (p_open == NULL)
-        flags |= ImGuiTabItemFlags_NoCloseButton;
 
     const bool tab_bar_appearing = (tab_bar->PrevFrameVisible + 1 < g.FrameCount);
     const bool tab_bar_focused = (tab_bar->Flags & ImGuiTabBarFlags_IsFocused) != 0;
@@ -7525,8 +7521,8 @@ void ImGui::BeginColumns(const char* str_id, int columns_count, ImGuiColumnsFlag
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = GetCurrentWindow();
 
-    IM_ASSERT(columns_count >= 1);
-    IM_ASSERT(window->DC.CurrentColumns == NULL); // Nested columns are currently not supported
+    IM_ASSERT(columns_count >= 1 && columns_count <= 64);   // Maximum 64 columns
+    IM_ASSERT(window->DC.CurrentColumns == NULL);           // Nested columns are currently not supported
 
     // Acquire storage for the columns set
     ImGuiID id = GetColumnsID(str_id, columns_count);
