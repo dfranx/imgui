@@ -1,4 +1,4 @@
-// dear imgui, v1.75 WIP
+// dear imgui, v1.76 WIP
 // (drawing and font code)
 
 /*
@@ -27,6 +27,8 @@ Index of this file:
 #endif
 
 #include "imgui.h"
+#ifndef IMGUI_DISABLE
+
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
@@ -354,14 +356,29 @@ ImDrawListSharedData::ImDrawListSharedData()
     Font = NULL;
     FontSize = 0.0f;
     CurveTessellationTol = 0.0f;
+    CircleSegmentMaxError = 0.0f;
     ClipRectFullscreen = ImVec4(-8192.0f, -8192.0f, +8192.0f, +8192.0f);
     InitialFlags = ImDrawListFlags_None;
 
-    // Const data
+    // Lookup tables
     for (int i = 0; i < IM_ARRAYSIZE(CircleVtx12); i++)
     {
         const float a = ((float)i * 2 * IM_PI) / (float)IM_ARRAYSIZE(CircleVtx12);
         CircleVtx12[i] = ImVec2(ImCos(a), ImSin(a));
+    }
+    memset(CircleSegmentCounts, 0, sizeof(CircleSegmentCounts)); // This will be set by SetCircleSegmentMaxError()
+}
+
+void ImDrawListSharedData::SetCircleSegmentMaxError(float max_error)
+{
+    if (CircleSegmentMaxError == max_error)
+        return;
+    CircleSegmentMaxError = max_error;
+    for (int i = 0; i < IM_ARRAYSIZE(CircleSegmentCounts); i++)
+    {
+        const float radius = i + 1.0f;
+        const int segment_count = IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(radius, CircleSegmentMaxError);
+        CircleSegmentCounts[i] = (ImU8)ImMin(segment_count, 255);
     }
 }
 
@@ -523,7 +540,7 @@ void ImDrawList::PopTextureID()
 }
 
 // Reserve space for a number of vertices and indices.
-// You must finish filling your reserved data before calling PrimReserve() again, as it may reallocate or 
+// You must finish filling your reserved data before calling PrimReserve() again, as it may reallocate or
 // submit the intermediate results. PrimUnreserve() can be used to release unused allocations.
 void ImDrawList::PrimReserve(int idx_count, int vtx_count)
 {
@@ -606,8 +623,8 @@ void ImDrawList::PrimQuadUV(const ImVec2& a, const ImVec2& b, const ImVec2& c, c
 
 // On AddPolyline() and AddConvexPolyFilled() we intentionally avoid using ImVec2 and superflous function calls to optimize debug/non-inlined builds.
 // Those macros expects l-values.
-#define IM_NORMALIZE2F_OVER_ZERO(VX,VY)     { float d2 = VX*VX + VY*VY; if (d2 > 0.0f) { float inv_len = 1.0f / ImSqrt(d2); VX *= inv_len; VY *= inv_len; } }
-#define IM_FIXNORMAL2F(VX,VY)               { float d2 = VX*VX + VY*VY; if (d2 < 0.5f) d2 = 0.5f; float inv_lensq = 1.0f / d2; VX *= inv_lensq; VY *= inv_lensq; }
+#define IM_NORMALIZE2F_OVER_ZERO(VX,VY)     do { float d2 = VX*VX + VY*VY; if (d2 > 0.0f) { float inv_len = 1.0f / ImSqrt(d2); VX *= inv_len; VY *= inv_len; } } while (0)
+#define IM_FIXNORMAL2F(VX,VY)               do { float d2 = VX*VX + VY*VY; if (d2 < 0.5f) d2 = 0.5f; float inv_lensq = 1.0f / d2; VX *= inv_lensq; VY *= inv_lensq; } while (0)
 
 // TODO: Thickness anti-aliased lines cap are missing their AA fringe.
 // We avoid using the ImVec2 math operators here to reduce cost to a minimum for debug/non-inlined builds.
@@ -669,7 +686,7 @@ void ImDrawList::AddPolyline(const ImVec2* points, const int points_count, ImU32
                 // Average normals
                 float dm_x = (temp_normals[i1].x + temp_normals[i2].x) * 0.5f;
                 float dm_y = (temp_normals[i1].y + temp_normals[i2].y) * 0.5f;
-                IM_FIXNORMAL2F(dm_x, dm_y)
+                IM_FIXNORMAL2F(dm_x, dm_y);
                 dm_x *= AA_SIZE;
                 dm_y *= AA_SIZE;
 
@@ -1091,23 +1108,61 @@ void ImDrawList::AddTriangleFilled(const ImVec2& p1, const ImVec2& p2, const ImV
 
 void ImDrawList::AddCircle(const ImVec2& center, float radius, ImU32 col, int num_segments, float thickness)
 {
-    if ((col & IM_COL32_A_MASK) == 0 || num_segments <= 2)
+    if ((col & IM_COL32_A_MASK) == 0 || radius <= 0.0f)
         return;
+
+    // Obtain segment count
+    if (num_segments <= 0)
+    {
+        // Automatic segment count
+        const int radius_idx = (int)radius - 1;
+        if (radius_idx < IM_ARRAYSIZE(_Data->CircleSegmentCounts))
+            num_segments = _Data->CircleSegmentCounts[radius_idx]; // Use cached value
+        else
+            num_segments = IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(radius, _Data->CircleSegmentMaxError);
+    }
+    else
+    {
+        // Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
+        num_segments = ImClamp(num_segments, 3, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX);
+    }
 
     // Because we are filling a closed shape we remove 1 from the count of segments/points
     const float a_max = (IM_PI * 2.0f) * ((float)num_segments - 1.0f) / (float)num_segments;
-    PathArcTo(center, radius - 0.5f, 0.0f, a_max, num_segments - 1);
+    if (num_segments == 12)
+        PathArcToFast(center, radius - 0.5f, 0, 12);
+    else
+        PathArcTo(center, radius - 0.5f, 0.0f, a_max, num_segments - 1);
     PathStroke(col, true, thickness);
 }
 
 void ImDrawList::AddCircleFilled(const ImVec2& center, float radius, ImU32 col, int num_segments)
 {
-    if ((col & IM_COL32_A_MASK) == 0 || num_segments <= 2)
+    if ((col & IM_COL32_A_MASK) == 0 || radius <= 0.0f)
         return;
+
+    // Obtain segment count
+    if (num_segments <= 0)
+    {
+        // Automatic segment count
+        const int radius_idx = (int)radius - 1;
+        if (radius_idx < IM_ARRAYSIZE(_Data->CircleSegmentCounts))
+            num_segments = _Data->CircleSegmentCounts[radius_idx]; // Use cached value
+        else
+            num_segments = IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_CALC(radius, _Data->CircleSegmentMaxError);
+    }
+    else
+    {
+        // Explicit segment count (still clamp to avoid drawing insanely tessellated shapes)
+        num_segments = ImClamp(num_segments, 3, IM_DRAWLIST_CIRCLE_AUTO_SEGMENT_MAX);
+    }
 
     // Because we are filling a closed shape we remove 1 from the count of segments/points
     const float a_max = (IM_PI * 2.0f) * ((float)num_segments - 1.0f) / (float)num_segments;
-    PathArcTo(center, radius, 0.0f, a_max, num_segments - 1);
+    if (num_segments == 12)
+        PathArcToFast(center, radius, 0, 12);
+    else
+        PathArcTo(center, radius, 0.0f, a_max, num_segments - 1);
     PathFillConvex(col);
 }
 
@@ -1260,7 +1315,7 @@ void ImDrawListSplitter::ClearFreeMemory()
 
 void ImDrawListSplitter::Split(ImDrawList* draw_list, int channels_count)
 {
-    IM_ASSERT(_Current == 0 && _Count <= 1);
+    IM_ASSERT(_Current == 0 && _Count <= 1 && "Nested channel splitting is not supported. Please use separate instances of ImDrawListSplitter.");
     int old_channels_count = _Channels.Size;
     if (old_channels_count < channels_count)
         _Channels.resize(channels_count);
@@ -1893,7 +1948,7 @@ bool    ImFontAtlasBuildWithStbTruetype(ImFontAtlas* atlas)
 {
     IM_ASSERT(atlas->ConfigData.Size > 0);
 
-    ImFontAtlasBuildRegisterDefaultCustomRects(atlas);
+    ImFontAtlasBuildInit(atlas);
 
     // Clear atlas
     atlas->TexID = (ImTextureID)NULL;
@@ -2145,7 +2200,8 @@ bool    ImFontAtlasBuildWithStbTruetype(ImFontAtlas* atlas)
     return true;
 }
 
-void ImFontAtlasBuildRegisterDefaultCustomRects(ImFontAtlas* atlas)
+// Register default custom rectangles (this is called/shared by both the stb_truetype and the FreeType builder)
+void ImFontAtlasBuildInit(ImFontAtlas* atlas)
 {
     if (atlas->CustomRectIds[0] >= 0)
         return;
@@ -2572,6 +2628,7 @@ void ImFont::BuildLookupTable()
     for (int i = 0; i != Glyphs.Size; i++)
         max_codepoint = ImMax(max_codepoint, (int)Glyphs[i].Codepoint);
 
+    // Build lookup table
     IM_ASSERT(Glyphs.Size < 0xFFFF); // -1 is reserved
     IndexAdvanceX.clear();
     IndexLookup.clear();
@@ -2588,7 +2645,7 @@ void ImFont::BuildLookupTable()
     // FIXME: Needs proper TAB handling but it needs to be contextualized (or we could arbitrary say that each string starts at "column 0" ?)
     if (FindGlyph((ImWchar)' '))
     {
-        if (Glyphs.back().Codepoint != '\t')   // So we can call this function multiple times
+        if (Glyphs.back().Codepoint != '\t')   // So we can call this function multiple times (FIXME: Flaky)
             Glyphs.resize(Glyphs.Size + 1);
         ImFontGlyph& tab_glyph = Glyphs.back();
         tab_glyph = *FindGlyph((ImWchar)' ');
@@ -2598,11 +2655,22 @@ void ImFont::BuildLookupTable()
         IndexLookup[(int)tab_glyph.Codepoint] = (ImWchar)(Glyphs.Size-1);
     }
 
+    // Mark special glyphs as not visible (note that AddGlyph already mark as non-visible glyphs with zero-size polygons)
+    SetGlyphVisible((ImWchar)' ', false);
+    SetGlyphVisible((ImWchar)'\t', false);
+
+    // Setup fall-backs
     FallbackGlyph = FindGlyphNoFallback(FallbackChar);
     FallbackAdvanceX = FallbackGlyph ? FallbackGlyph->AdvanceX : 0.0f;
     for (int i = 0; i < max_codepoint + 1; i++)
         if (IndexAdvanceX[i] < 0.0f)
             IndexAdvanceX[i] = FallbackAdvanceX;
+}
+
+void ImFont::SetGlyphVisible(ImWchar c, bool visible)
+{
+    if (ImFontGlyph* glyph = (ImFontGlyph*)(void*)FindGlyph((ImWchar)c))
+        glyph->Visible = visible ? 1 : 0;
 }
 
 void ImFont::SetFallbackChar(ImWchar c)
@@ -2626,7 +2694,8 @@ void ImFont::AddGlyph(ImWchar codepoint, float x0, float y0, float x1, float y1,
 {
     Glyphs.resize(Glyphs.Size + 1);
     ImFontGlyph& glyph = Glyphs.back();
-    glyph.Codepoint = (ImWchar)codepoint;
+    glyph.Codepoint = (unsigned int)codepoint;
+    glyph.Visible = (x0 != x1) && (y0 != y1);
     glyph.X0 = x0;
     glyph.Y0 = y0;
     glyph.X1 = x1;
@@ -2875,16 +2944,14 @@ ImVec2 ImFont::CalcTextSizeA(float size, float max_width, float wrap_width, cons
 
 void ImFont::RenderChar(ImDrawList* draw_list, float size, ImVec2 pos, ImU32 col, ImWchar c) const
 {
-    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') // Match behavior of RenderText(), those 4 codepoints are hard-coded.
+    const ImFontGlyph* glyph = FindGlyph(c);
+    if (!glyph || !glyph->Visible)
         return;
-    if (const ImFontGlyph* glyph = FindGlyph(c))
-    {
-        float scale = (size >= 0.0f) ? (size / FontSize) : 1.0f;
-        pos.x = IM_FLOOR(pos.x + DisplayOffset.x);
-        pos.y = IM_FLOOR(pos.y + DisplayOffset.y);
-        draw_list->PrimReserve(6, 4);
-        draw_list->PrimRectUV(ImVec2(pos.x + glyph->X0 * scale, pos.y + glyph->Y0 * scale), ImVec2(pos.x + glyph->X1 * scale, pos.y + glyph->Y1 * scale), ImVec2(glyph->U0, glyph->V0), ImVec2(glyph->U1, glyph->V1), col);
-    }
+    float scale = (size >= 0.0f) ? (size / FontSize) : 1.0f;
+    pos.x = IM_FLOOR(pos.x + DisplayOffset.x);
+    pos.y = IM_FLOOR(pos.y + DisplayOffset.y);
+    draw_list->PrimReserve(6, 4);
+    draw_list->PrimRectUV(ImVec2(pos.x + glyph->X0 * scale, pos.y + glyph->Y0 * scale), ImVec2(pos.x + glyph->X1 * scale, pos.y + glyph->Y1 * scale), ImVec2(glyph->U0, glyph->V0), ImVec2(glyph->U1, glyph->V1), col);
 }
 
 void ImFont::RenderText(ImDrawList* draw_list, float size, ImVec2 pos, ImU32 col, const ImVec4& clip_rect, const char* text_begin, const char* text_end, float wrap_width, bool cpu_fine_clip) const
@@ -2997,73 +3064,70 @@ void ImFont::RenderText(ImDrawList* draw_list, float size, ImVec2 pos, ImU32 col
                 continue;
         }
 
-        float char_width = 0.0f;
-        if (const ImFontGlyph* glyph = FindGlyph((ImWchar)c))
+        const ImFontGlyph* glyph = FindGlyph((ImWchar)c);
+        if (glyph == NULL)
+            continue;
+
+        float char_width = glyph->AdvanceX * scale;
+        if (glyph->Visible)
         {
-            char_width = glyph->AdvanceX * scale;
-
-            // Arbitrarily assume that both space and tabs are empty glyphs as an optimization
-            if (c != ' ' && c != '\t')
+            // We don't do a second finer clipping test on the Y axis as we've already skipped anything before clip_rect.y and exit once we pass clip_rect.w
+            float x1 = x + glyph->X0 * scale;
+            float x2 = x + glyph->X1 * scale;
+            float y1 = y + glyph->Y0 * scale;
+            float y2 = y + glyph->Y1 * scale;
+            if (x1 <= clip_rect.z && x2 >= clip_rect.x)
             {
-                // We don't do a second finer clipping test on the Y axis as we've already skipped anything before clip_rect.y and exit once we pass clip_rect.w
-                float x1 = x + glyph->X0 * scale;
-                float x2 = x + glyph->X1 * scale;
-                float y1 = y + glyph->Y0 * scale;
-                float y2 = y + glyph->Y1 * scale;
-                if (x1 <= clip_rect.z && x2 >= clip_rect.x)
+                // Render a character
+                float u1 = glyph->U0;
+                float v1 = glyph->V0;
+                float u2 = glyph->U1;
+                float v2 = glyph->V1;
+
+                // CPU side clipping used to fit text in their frame when the frame is too small. Only does clipping for axis aligned quads.
+                if (cpu_fine_clip)
                 {
-                    // Render a character
-                    float u1 = glyph->U0;
-                    float v1 = glyph->V0;
-                    float u2 = glyph->U1;
-                    float v2 = glyph->V1;
-
-                    // CPU side clipping used to fit text in their frame when the frame is too small. Only does clipping for axis aligned quads.
-                    if (cpu_fine_clip)
+                    if (x1 < clip_rect.x)
                     {
-                        if (x1 < clip_rect.x)
-                        {
-                            u1 = u1 + (1.0f - (x2 - clip_rect.x) / (x2 - x1)) * (u2 - u1);
-                            x1 = clip_rect.x;
-                        }
-                        if (y1 < clip_rect.y)
-                        {
-                            v1 = v1 + (1.0f - (y2 - clip_rect.y) / (y2 - y1)) * (v2 - v1);
-                            y1 = clip_rect.y;
-                        }
-                        if (x2 > clip_rect.z)
-                        {
-                            u2 = u1 + ((clip_rect.z - x1) / (x2 - x1)) * (u2 - u1);
-                            x2 = clip_rect.z;
-                        }
-                        if (y2 > clip_rect.w)
-                        {
-                            v2 = v1 + ((clip_rect.w - y1) / (y2 - y1)) * (v2 - v1);
-                            y2 = clip_rect.w;
-                        }
-                        if (y1 >= y2)
-                        {
-                            x += char_width;
-                            continue;
-                        }
+                        u1 = u1 + (1.0f - (x2 - clip_rect.x) / (x2 - x1)) * (u2 - u1);
+                        x1 = clip_rect.x;
                     }
-
-                    // We are NOT calling PrimRectUV() here because non-inlined causes too much overhead in a debug builds. Inlined here:
+                    if (y1 < clip_rect.y)
                     {
-                        idx_write[0] = (ImDrawIdx)(vtx_current_idx); idx_write[1] = (ImDrawIdx)(vtx_current_idx+1); idx_write[2] = (ImDrawIdx)(vtx_current_idx+2);
-                        idx_write[3] = (ImDrawIdx)(vtx_current_idx); idx_write[4] = (ImDrawIdx)(vtx_current_idx+2); idx_write[5] = (ImDrawIdx)(vtx_current_idx+3);
-                        vtx_write[0].pos.x = x1; vtx_write[0].pos.y = y1; vtx_write[0].col = col; vtx_write[0].uv.x = u1; vtx_write[0].uv.y = v1;
-                        vtx_write[1].pos.x = x2; vtx_write[1].pos.y = y1; vtx_write[1].col = col; vtx_write[1].uv.x = u2; vtx_write[1].uv.y = v1;
-                        vtx_write[2].pos.x = x2; vtx_write[2].pos.y = y2; vtx_write[2].col = col; vtx_write[2].uv.x = u2; vtx_write[2].uv.y = v2;
-                        vtx_write[3].pos.x = x1; vtx_write[3].pos.y = y2; vtx_write[3].col = col; vtx_write[3].uv.x = u1; vtx_write[3].uv.y = v2;
-                        vtx_write += 4;
-                        vtx_current_idx += 4;
-                        idx_write += 6;
+                        v1 = v1 + (1.0f - (y2 - clip_rect.y) / (y2 - y1)) * (v2 - v1);
+                        y1 = clip_rect.y;
                     }
+                    if (x2 > clip_rect.z)
+                    {
+                        u2 = u1 + ((clip_rect.z - x1) / (x2 - x1)) * (u2 - u1);
+                        x2 = clip_rect.z;
+                    }
+                    if (y2 > clip_rect.w)
+                    {
+                        v2 = v1 + ((clip_rect.w - y1) / (y2 - y1)) * (v2 - v1);
+                        y2 = clip_rect.w;
+                    }
+                    if (y1 >= y2)
+                    {
+                        x += char_width;
+                        continue;
+                    }
+                }
+
+                // We are NOT calling PrimRectUV() here because non-inlined causes too much overhead in a debug builds. Inlined here:
+                {
+                    idx_write[0] = (ImDrawIdx)(vtx_current_idx); idx_write[1] = (ImDrawIdx)(vtx_current_idx+1); idx_write[2] = (ImDrawIdx)(vtx_current_idx+2);
+                    idx_write[3] = (ImDrawIdx)(vtx_current_idx); idx_write[4] = (ImDrawIdx)(vtx_current_idx+2); idx_write[5] = (ImDrawIdx)(vtx_current_idx+3);
+                    vtx_write[0].pos.x = x1; vtx_write[0].pos.y = y1; vtx_write[0].col = col; vtx_write[0].uv.x = u1; vtx_write[0].uv.y = v1;
+                    vtx_write[1].pos.x = x2; vtx_write[1].pos.y = y1; vtx_write[1].col = col; vtx_write[1].uv.x = u2; vtx_write[1].uv.y = v1;
+                    vtx_write[2].pos.x = x2; vtx_write[2].pos.y = y2; vtx_write[2].col = col; vtx_write[2].uv.x = u2; vtx_write[2].uv.y = v2;
+                    vtx_write[3].pos.x = x1; vtx_write[3].pos.y = y2; vtx_write[3].col = col; vtx_write[3].uv.x = u1; vtx_write[3].uv.y = v2;
+                    vtx_write += 4;
+                    vtx_current_idx += 4;
+                    idx_write += 6;
                 }
             }
         }
-
         x += char_width;
     }
 
@@ -3100,10 +3164,10 @@ void ImGui::RenderMouseCursor(ImDrawList* draw_list, ImVec2 pos, float scale, Im
         pos -= offset;
         const ImTextureID tex_id = font_atlas->TexID;
         draw_list->PushTextureID(tex_id);
-        draw_list->AddImage(tex_id, pos + ImVec2(1, 0)*scale, pos + ImVec2(1, 0)*scale + size*scale, uv[2], uv[3], col_shadow);
-        draw_list->AddImage(tex_id, pos + ImVec2(2, 0)*scale, pos + ImVec2(2, 0)*scale + size*scale, uv[2], uv[3], col_shadow);
-        draw_list->AddImage(tex_id, pos, pos + size*scale, uv[2], uv[3], col_border);
-        draw_list->AddImage(tex_id, pos, pos + size*scale, uv[0], uv[1], col_fill);
+        draw_list->AddImage(tex_id, pos + ImVec2(1,0)*scale, pos + ImVec2(1,0)*scale + size*scale, uv[2], uv[3], col_shadow);
+        draw_list->AddImage(tex_id, pos + ImVec2(2,0)*scale, pos + ImVec2(2,0)*scale + size*scale, uv[2], uv[3], col_shadow);
+        draw_list->AddImage(tex_id, pos,                     pos + size*scale,                     uv[2], uv[3], col_border);
+        draw_list->AddImage(tex_id, pos,                     pos + size*scale,                     uv[0], uv[1], col_fill);
         draw_list->PopTextureID();
     }
 }
@@ -3439,3 +3503,5 @@ static const char* GetDefaultCompressedFontDataTTFBase85()
 {
     return proggy_clean_ttf_compressed_data_base85;
 }
+
+#endif // #ifndef IMGUI_DISABLE

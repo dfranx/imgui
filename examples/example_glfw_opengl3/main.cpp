@@ -1,6 +1,6 @@
 // dear imgui: standalone example application for GLFW + OpenGL 3, using programmable pipeline
 // If you are new to dear imgui, see examples/README.txt and documentation at the top of imgui.cpp.
-// (GLFW is a cross-platform general purpose library for handling windows, inputs, OpenGL/Vulkan graphics context creation, etc.)
+// (GLFW is a cross-platform general purpose library for handling windows, inputs, OpenGL/Vulkan/Metal graphics context creation, etc.)
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -17,6 +17,11 @@
 #include <GL/glew.h>    // Initialize with glewInit()
 #elif defined(IMGUI_IMPL_OPENGL_LOADER_GLAD)
 #include <glad/glad.h>  // Initialize with gladLoadGL()
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLBINDING)
+#define GLFW_INCLUDE_NONE         // GLFW including OpenGL headers causes ambiguity or multiple definition errors.
+#include <glbinding/glbinding.h>  // Initialize with glbinding::initialize()
+#include <glbinding/gl/gl.h>
+using namespace gl;
 #else
 #include IMGUI_IMPL_OPENGL_LOADER_CUSTOM
 #endif
@@ -74,6 +79,9 @@ int main(int, char**)
     bool err = glewInit() != GLEW_OK;
 #elif defined(IMGUI_IMPL_OPENGL_LOADER_GLAD)
     bool err = gladLoadGL() == 0;
+#elif defined(IMGUI_IMPL_OPENGL_LOADER_GLBINDING)
+    bool err = false;
+    glbinding::initialize([](const char* name) { return (glbinding::ProcAddress)glfwGetProcAddress(name); });
 #else
     bool err = false; // If you use IMGUI_IMPL_OPENGL_LOADER_CUSTOM, your loader is likely to requires some form of initialization.
 #endif
