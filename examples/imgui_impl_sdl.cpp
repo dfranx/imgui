@@ -133,7 +133,7 @@ bool ImGui_ImplSDL2_ProcessEvent(const SDL_Event* event)
             io.KeysDown[key] = (event->type == SDL_KEYDOWN);
             io.KeyShift = ((SDL_GetModState() & KMOD_SHIFT) != 0);
             io.KeyCtrl = ((SDL_GetModState() & KMOD_CTRL) != 0);
-            io.KeyAlt = ((SDL_GetModState() & KMOD_ALT) != 0);
+            io.KeyAlt = ((SDL_GetModState() & KMOD_LALT) != 0);
 #ifdef _WIN32
             io.KeySuper = false;
 #else
