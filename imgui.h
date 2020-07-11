@@ -1,4 +1,4 @@
-// dear imgui, v1.77
+// dear imgui, v1.78 WIP
 // (headers)
 
 // Help:
@@ -34,6 +34,8 @@ Index of this file:
 // Font API (ImFontConfig, ImFontGlyph, ImFontGlyphRangesBuilder, ImFontAtlasFlags, ImFontAtlas, ImFont)
 // Platform interface for multi-viewport support (ImGuiPlatformIO, ImGuiPlatformMonitor, ImGuiViewportFlags, ImGuiViewport)
 
+// FIXME-TABLE: Add ImGuiTableSortSpecsColumn and ImGuiTableSortSpecs in "Misc data structures" section above (we don't do it right now to facilitate merging various branches)
+
 */
 
 #pragma once
@@ -60,8 +62,8 @@ Index of this file:
 
 // Version
 // (Integer encoded as XYYZZ for use in #if preprocessor conditionals. Work in progress versions typically starts at XYY99 then bounce up to XYY00, XYY01 etc. when release tagging happens)
-#define IMGUI_VERSION               "1.77"
-#define IMGUI_VERSION_NUM           17701
+#define IMGUI_VERSION               "1.78 WIP"
+#define IMGUI_VERSION_NUM           17703
 #define IMGUI_CHECKVERSION()        ImGui::DebugCheckVersionAndDataLayout(IMGUI_VERSION, sizeof(ImGuiIO), sizeof(ImGuiStyle), sizeof(ImVec2), sizeof(ImVec4), sizeof(ImDrawVert), sizeof(ImDrawIdx))
 #define IMGUI_HAS_VIEWPORT          1 // Viewport WIP branch
 #define IMGUI_HAS_DOCK              1 // Docking WIP branch
@@ -138,6 +140,8 @@ struct ImGuiPlatformMonitor;        // Multi-viewport support: user-provided bou
 struct ImGuiSizeCallbackData;       // Callback data when using SetNextWindowSizeConstraints() (rare/advanced use)
 struct ImGuiStorage;                // Helper for key->value storage
 struct ImGuiStyle;                  // Runtime data for styling/colors
+struct ImGuiTableSortSpecs;         // Sorting specifications for a table (often handling sort specs for a single column, occasionally more)
+struct ImGuiTableSortSpecsColumn;   // Sorting specification for one column of a table
 struct ImGuiTextBuffer;             // Helper to hold and append into a text buffer (~string builder)
 struct ImGuiTextFilter;             // Helper to parse and apply text filters (e.g. "aaaaa[,bbbbb][,ccccc]")
 struct ImGuiViewport;               // Viewport (generally ~1 per window to output to at the OS level. Need per-platform support to use multiple viewports)
@@ -155,10 +159,11 @@ typedef int ImGuiKey;               // -> enum ImGuiKey_             // Enum: A 
 typedef int ImGuiNavInput;          // -> enum ImGuiNavInput_        // Enum: An input identifier for navigation
 typedef int ImGuiMouseButton;       // -> enum ImGuiMouseButton_     // Enum: A mouse button identifier (0=left, 1=right, 2=middle)
 typedef int ImGuiMouseCursor;       // -> enum ImGuiMouseCursor_     // Enum: A mouse cursor identifier
+typedef int ImGuiSortDirection;     // -> enum ImGuiSortDirection_   // Enum: A sorting direction (ascending or descending)
 typedef int ImGuiStyleVar;          // -> enum ImGuiStyleVar_        // Enum: A variable identifier for styling
 typedef int ImDrawCornerFlags;      // -> enum ImDrawCornerFlags_    // Flags: for ImDrawList::AddRect(), AddRectFilled() etc.
 typedef int ImDrawListFlags;        // -> enum ImDrawListFlags_      // Flags: for ImDrawList
-typedef int ImFontAtlasFlags;       // -> enum ImFontAtlasFlags_     // Flags: for ImFontAtlas
+typedef int ImFontAtlasFlags;       // -> enum ImFontAtlasFlags_     // Flags: for ImFontAtlas build
 typedef int ImGuiBackendFlags;      // -> enum ImGuiBackendFlags_    // Flags: for io.BackendFlags
 typedef int ImGuiColorEditFlags;    // -> enum ImGuiColorEditFlags_  // Flags: for ColorEdit4(), ColorPicker4() etc.
 typedef int ImGuiConfigFlags;       // -> enum ImGuiConfigFlags_     // Flags: for io.ConfigFlags
@@ -173,6 +178,9 @@ typedef int ImGuiPopupFlags;        // -> enum ImGuiPopupFlags_      // Flags: f
 typedef int ImGuiSelectableFlags;   // -> enum ImGuiSelectableFlags_ // Flags: for Selectable()
 typedef int ImGuiTabBarFlags;       // -> enum ImGuiTabBarFlags_     // Flags: for BeginTabBar()
 typedef int ImGuiTabItemFlags;      // -> enum ImGuiTabItemFlags_    // Flags: for BeginTabItem()
+typedef int ImGuiTableFlags;        // -> enum ImGuiTableFlags_      // Flags: For BeginTable()
+typedef int ImGuiTableColumnFlags;  // -> enum ImGuiTableColumnFlags_// Flags: For TableSetupColumn()
+typedef int ImGuiTableRowFlags;     // -> enum ImGuiTableRowFlags_   // Flags: For TableNextRow()
 typedef int ImGuiTreeNodeFlags;     // -> enum ImGuiTreeNodeFlags_   // Flags: for TreeNode(), TreeNodeEx(), CollapsingHeader()
 typedef int ImGuiViewportFlags;     // -> enum ImGuiViewportFlags_   // Flags: for ImGuiViewport
 typedef int ImGuiWindowFlags;       // -> enum ImGuiWindowFlags_     // Flags: for Begin(), BeginChild()
@@ -654,6 +662,39 @@ namespace ImGui
     IMGUI_API void          SetColumnOffset(int column_index, float offset_x);                  // set position of column line (in pixels, from the left side of the contents region). pass -1 to use current column
     IMGUI_API int           GetColumnsCount();
 
+    // Tables
+    // [ALPHA API] API will evolve! (FIXME-TABLE)
+    // - Full-featured replacement for old Columns API
+    // - In most situations you can use TableNextRow() + TableSetColumnIndex() to populate a table.
+    // - If you are using tables as a sort of grid, populating every columns with the same type of contents,
+    //   you may prefer using TableNextCell() instead of TableNextRow() + TableSetColumnIndex().
+    // - See Demo->Tables for details.
+    // - See ImGuiTableFlags_ and ImGuiTableColumnsFlags_ enums for a description of available flags.
+    #define IMGUI_HAS_TABLE 1
+    IMGUI_API bool          BeginTable(const char* str_id, int columns_count, ImGuiTableFlags flags = 0, const ImVec2& outer_size = ImVec2(0, 0), float inner_width = 0.0f);
+    IMGUI_API void          EndTable();                                 // only call EndTable() if BeginTable() returns true!
+    IMGUI_API void          TableNextRow(ImGuiTableRowFlags row_flags = 0, float min_row_height = 0.0f); // append into the first cell of a new row.
+    IMGUI_API bool          TableNextCell();                            // append into the next column (next column, or next row if currently in last column). Return true if column is visible.
+    IMGUI_API bool          TableSetColumnIndex(int column_n);          // append into the specified column. Return true if column is visible.
+    IMGUI_API int           TableGetColumnIndex();                      // return current column index.
+    IMGUI_API const char*   TableGetColumnName(int column_n = -1);      // return NULL if column didn't have a name declared by TableSetupColumn(). Pass -1 to use current column.
+    IMGUI_API bool          TableGetColumnIsVisible(int column_n = -1); // return true if column is visible. Same value is also returned by TableNextCell() and TableSetColumnIndex(). Pass -1 to use current column.
+    IMGUI_API bool          TableGetColumnIsSorted(int column_n = -1);  // return true if column is included in the sort specs. Rarely used, can be useful to tell if a data change should trigger resort. Equivalent to test ImGuiTableSortSpecs's ->ColumnsMask & (1 << column_n). Pass -1 to use current column.
+    IMGUI_API int           TableGetHoveredColumn();                    // return hovered column. return -1 when table is not hovered. return columns_count if the unused space at the right of visible columns is hovered.
+    // Tables: Headers & Columns declaration
+    // - Use TableSetupColumn() to specify label, resizing policy, default width, id, various other flags etc.
+    // - The name passed to TableSetupColumn() is used by TableAutoHeaders() and by the context-menu
+    // - Use TableAutoHeaders() to submit the whole header row, otherwise you may treat the header row as a regular row, manually call TableHeader() and other widgets.
+    // - Headers are required to perform some interactions: reordering, sorting, context menu (FIXME-TABLE: context menu should work without!)
+    IMGUI_API void          TableSetupColumn(const char* label, ImGuiTableColumnFlags flags = 0, float init_width_or_weight = -1.0f, ImU32 user_id = 0);
+    IMGUI_API void          TableAutoHeaders();                         // submit all headers cells based on data provided to TableSetupColumn() + submit context menu
+    IMGUI_API void          TableHeader(const char* label);             // submit one header cell manually.
+    // Tables: Sorting
+    // - Call TableGetSortSpecs() to retrieve latest sort specs for the table. Return value will be NULL if no sorting.
+    // - You can sort your data again when 'SpecsChanged == true'. It will be true with sorting specs have changed since last call, or the first time.
+    // - Lifetime: don't hold on this pointer over multiple frames or past any subsequent call to BeginTable()!
+    IMGUI_API const ImGuiTableSortSpecs* TableGetSortSpecs();           // get latest sort specs for the table (NULL if not sorting).
+
     // Tab Bars, Tabs
     // Note: Tabs are automatically created by the docking system. Use this to create tab bars/tabs yourself without docking being involved.
     IMGUI_API bool          BeginTabBar(const char* str_id, ImGuiTabBarFlags flags = 0);        // create and append into a TabBar
@@ -770,7 +811,7 @@ namespace ImGui
     IMGUI_API bool          IsMouseDown(ImGuiMouseButton button);                               // is mouse button held?
     IMGUI_API bool          IsMouseClicked(ImGuiMouseButton button, bool repeat = false);       // did mouse button clicked? (went from !Down to Down)
     IMGUI_API bool          IsMouseReleased(ImGuiMouseButton button);                           // did mouse button released? (went from Down to !Down)
-    IMGUI_API bool          IsMouseDoubleClicked(ImGuiMouseButton button);                      // did mouse button double-clicked? a double-click returns false in IsMouseClicked(). uses io.MouseDoubleClickTime.
+    IMGUI_API bool          IsMouseDoubleClicked(ImGuiMouseButton button);                      // did mouse button double-clicked? (note that a double-click will also report IsMouseClicked() == true)
     IMGUI_API bool          IsMouseHoveringRect(const ImVec2& r_min, const ImVec2& r_max, bool clip = true);// is mouse hovering given bounding rect (in screen space). clipped by current clipping settings, but disregarding of other consideration of focus/window ordering/popup-block.
     IMGUI_API bool          IsMousePosValid(const ImVec2* mouse_pos = NULL);                    // by convention we use (-FLT_MAX,-FLT_MAX) to denote that there is no mouse available
     IMGUI_API bool          IsAnyMouseDown();                                                   // is any mouse button held?
@@ -989,6 +1030,95 @@ enum ImGuiTabItemFlags_
     ImGuiTabItemFlags_NoTooltip                     = 1 << 4    // Disable tooltip for the given tab
 };
 
+// Flags for ImGui::BeginTable()
+// - Columns can either varying resizing policy: "Fixed", "Stretch" or "AlwaysAutoResize". Toggling ScrollX needs to alter default sizing policy.
+// - Sizing policy have many subtle side effects which may be hard to fully comprehend at first.. They'll eventually make sense.
+//   - with SizingPolicyFixedX (default is ScrollX is on):     Columns can be enlarged as needed. Enable scrollbar if ScrollX is enabled, otherwise extend parent window's contents rect. Only Fixed columns allowed. Weighted columns will calculate their width assuming no scrolling.
+//   - with SizingPolicyStretchX (default is ScrollX is off):  Fit all columns within available table width (so it doesn't make sense to use ScrollX with Stretch columns!). Fixed and Weighted columns allowed.
+enum ImGuiTableFlags_
+{
+    // Features
+    ImGuiTableFlags_None                            = 0,
+    ImGuiTableFlags_Resizable                       = 1 << 0,   // Allow resizing columns.
+    ImGuiTableFlags_Reorderable                     = 1 << 1,   // Allow reordering columns (need calling TableSetupColumn() + TableAutoHeaders() or TableHeaders() to display headers)
+    ImGuiTableFlags_Hideable                        = 1 << 2,   // Allow hiding columns (with right-click on header) (FIXME-TABLE: allow without headers).
+    ImGuiTableFlags_Sortable                        = 1 << 3,   // Allow sorting on one column (sort_specs_count will always be == 1). Call TableGetSortSpecs() to obtain sort specs.
+    ImGuiTableFlags_MultiSortable                   = 1 << 4,   // Allow sorting on multiple columns by holding Shift (sort_specs_count may be > 1). Call TableGetSortSpecs() to obtain sort specs.
+    ImGuiTableFlags_NoSavedSettings                 = 1 << 5,   // Disable persisting columns order, width and sort settings in the .ini file.
+    // Decoration
+    ImGuiTableFlags_RowBg                           = 1 << 6,   // Use ImGuiCol_TableRowBg and ImGuiCol_TableRowBgAlt colors behind each rows.
+    ImGuiTableFlags_BordersHInner                   = 1 << 7,   // Draw horizontal borders between rows.
+    ImGuiTableFlags_BordersHOuter                   = 1 << 8,   // Draw horizontal borders at the top and bottom.
+    ImGuiTableFlags_BordersVInner                   = 1 << 9,   // Draw vertical borders between columns.
+    ImGuiTableFlags_BordersVOuter                   = 1 << 10,  // Draw vertical borders on the left and right sides.
+    ImGuiTableFlags_BordersH                        = ImGuiTableFlags_BordersHInner | ImGuiTableFlags_BordersHOuter, // Draw horizontal borders.
+    ImGuiTableFlags_BordersV                        = ImGuiTableFlags_BordersVInner | ImGuiTableFlags_BordersVOuter, // Draw vertical borders.
+    ImGuiTableFlags_BordersInner                    = ImGuiTableFlags_BordersVInner | ImGuiTableFlags_BordersHInner, // Draw inner borders.
+    ImGuiTableFlags_BordersOuter                    = ImGuiTableFlags_BordersVOuter | ImGuiTableFlags_BordersHOuter, // Draw outer borders.
+    ImGuiTableFlags_Borders                         = ImGuiTableFlags_BordersInner | ImGuiTableFlags_BordersOuter,   // Draw all borders.
+    ImGuiTableFlags_BordersVFullHeight              = 1 << 11,  // Borders covers all rows even when Headers are being used. Allow resizing from any rows.
+    // Padding, Sizing
+    ImGuiTableFlags_NoClipX                         = 1 << 12,  // Disable pushing clipping rectangle for every individual columns (reduce draw command count, items will be able to overflow)
+    ImGuiTableFlags_SizingPolicyFixedX              = 1 << 13,  // Default if ScrollX is on. Columns will default to use _WidthFixed or _WidthAlwaysAutoResize policy. Read description above for more details.
+    ImGuiTableFlags_SizingPolicyStretchX            = 1 << 14,  // Default if ScrollX is off. Columns will default to use _WidthStretch policy. Read description above for more details.
+    ImGuiTableFlags_NoHeadersWidth                  = 1 << 15,  // Disable header width contribution to automatic width calculation.
+    ImGuiTableFlags_NoHostExtendY                   = 1 << 16,  // (FIXME-TABLE: Reword as SizingPolicy?) Disable extending past the limit set by outer_size.y, only meaningful when neither of ScrollX|ScrollY are set (data below the limit will be clipped and not visible)
+    ImGuiTableFlags_NoKeepColumnsVisible            = 1 << 17,  // (FIXME-TABLE) Disable code that keeps column always minimally visible when table width gets too small.
+    // Scrolling
+    ImGuiTableFlags_ScrollX                         = 1 << 18,  // Enable horizontal scrolling. Require 'outer_size' parameter of BeginTable() to specify the container size. Because this create a child window, ScrollY is currently generally recommended when using ScrollX.
+    ImGuiTableFlags_ScrollY                         = 1 << 19,  // Enable vertical scrolling. Require 'outer_size' parameter of BeginTable() to specify the container size.
+    ImGuiTableFlags_Scroll                          = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY,
+    ImGuiTableFlags_ScrollFreezeTopRow              = 1 << 20,  // We can lock 1 to 3 rows (starting from the top). Use with ScrollY enabled.
+    ImGuiTableFlags_ScrollFreeze2Rows               = 2 << 20,
+    ImGuiTableFlags_ScrollFreeze3Rows               = 3 << 20,
+    ImGuiTableFlags_ScrollFreezeLeftColumn          = 1 << 22,  // We can lock 1 to 3 columns (starting from the left). Use with ScrollX enabled.
+    ImGuiTableFlags_ScrollFreeze2Columns            = 2 << 22,
+    ImGuiTableFlags_ScrollFreeze3Columns            = 3 << 22,
+
+    // [Internal] Combinations and masks
+    ImGuiTableFlags_SizingPolicyMaskX_              = ImGuiTableFlags_SizingPolicyStretchX | ImGuiTableFlags_SizingPolicyFixedX,
+    ImGuiTableFlags_ScrollFreezeRowsShift_          = 20,
+    ImGuiTableFlags_ScrollFreezeColumnsShift_       = 22,
+    ImGuiTableFlags_ScrollFreezeRowsMask_           = 0x03 << ImGuiTableFlags_ScrollFreezeRowsShift_,
+    ImGuiTableFlags_ScrollFreezeColumnsMask_        = 0x03 << ImGuiTableFlags_ScrollFreezeColumnsShift_
+};
+
+// Flags for ImGui::TableSetupColumn()
+// FIXME-TABLE: Rename to ImGuiColumns_*, stick old columns api flags in there under an obsolete api block
+enum ImGuiTableColumnFlags_
+{
+    ImGuiTableColumnFlags_None                      = 0,
+    ImGuiTableColumnFlags_DefaultHide               = 1 << 0,   // Default as a hidden column.
+    ImGuiTableColumnFlags_DefaultSort               = 1 << 1,   // Default as a sorting column.
+    ImGuiTableColumnFlags_WidthFixed                = 1 << 2,   // Column will keep a fixed size, preferable with horizontal scrolling enabled (default if table sizing policy is SizingPolicyFixedX and table is resizable).
+    ImGuiTableColumnFlags_WidthStretch              = 1 << 3,   // Column will stretch, preferable with horizontal scrolling disabled (default if table sizing policy is SizingPolicyStretchX).
+    ImGuiTableColumnFlags_WidthAlwaysAutoResize     = 1 << 4,   // Column will keep resizing based on submitted contents (with a one frame delay) == Fixed with auto resize (default if table sizing policy is SizingPolicyFixedX and table is not resizable).
+    ImGuiTableColumnFlags_NoResize                  = 1 << 5,   // Disable manual resizing.
+    ImGuiTableColumnFlags_NoClipX                   = 1 << 6,   // Disable clipping for this column (all NoClipX columns will render in a same draw command).
+    ImGuiTableColumnFlags_NoSort                    = 1 << 7,   // Disable ability to sort on this field (even if ImGuiTableFlags_Sortable is set on the table).
+    ImGuiTableColumnFlags_NoSortAscending           = 1 << 8,   // Disable ability to sort in the ascending direction.
+    ImGuiTableColumnFlags_NoSortDescending          = 1 << 9,   // Disable ability to sort in the descending direction.
+    ImGuiTableColumnFlags_NoHide                    = 1 << 10,  // Disable hiding this column.
+    ImGuiTableColumnFlags_NoHeaderWidth             = 1 << 11,  // Header width don't contribute to automatic column width.
+    ImGuiTableColumnFlags_PreferSortAscending       = 1 << 12,  // Make the initial sort direction Ascending when first sorting on this column (default).
+    ImGuiTableColumnFlags_PreferSortDescending      = 1 << 13,  // Make the initial sort direction Descending when first sorting on this column.
+    ImGuiTableColumnFlags_IndentEnable              = 1 << 14,  // Use current Indent value when entering cell (default for 1st column).
+    ImGuiTableColumnFlags_IndentDisable             = 1 << 15,  // Ignore current Indent value when entering cell (default for columns after the 1st one). Indentation changes _within_ the cell will still be honored.
+    ImGuiTableColumnFlags_NoReorder                 = 1 << 16,  // Disable reordering this column, this will also prevent other columns from crossing over this column.
+
+    // [Internal] Combinations and masks
+    ImGuiTableColumnFlags_WidthMask_                = ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_WidthAlwaysAutoResize,
+    ImGuiTableColumnFlags_IndentMask_               = ImGuiTableColumnFlags_IndentEnable | ImGuiTableColumnFlags_IndentDisable,
+    ImGuiTableColumnFlags_NoDirectResize_           = 1 << 20   // [Internal] Disable user resizing this column directly (it may however we resized indirectly from its left edge)
+};
+
+// Flags for ImGui::TableNextRow()
+enum ImGuiTableRowFlags_
+{
+    ImGuiTableRowFlags_None                         = 0,
+    ImGuiTableRowFlags_Headers                      = 1 << 0    // Identify header row (set default background color + width of its contents accounted different for auto column width)
+};
+
 // Flags for ImGui::IsWindowFocused()
 enum ImGuiFocusedFlags_
 {
@@ -1079,6 +1209,14 @@ enum ImGuiDir_
     ImGuiDir_Up      = 2,
     ImGuiDir_Down    = 3,
     ImGuiDir_COUNT
+};
+
+// A sorting direction
+enum ImGuiSortDirection_
+{
+    ImGuiSortDirection_None         = 0,
+    ImGuiSortDirection_Ascending    = 1,    // Ascending = 0->9, A->Z etc.
+    ImGuiSortDirection_Descending   = 2     // Descending = 9->0, Z->A etc.
 };
 
 // User fill ImGuiIO.KeyMap[] array with indices into the ImGuiIO.KeysDown[512] array
@@ -1241,6 +1379,11 @@ enum ImGuiCol_
     ImGuiCol_PlotLinesHovered,
     ImGuiCol_PlotHistogram,
     ImGuiCol_PlotHistogramHovered,
+    ImGuiCol_TableHeaderBg,         // Table header background
+    ImGuiCol_TableBorderStrong,     // Table outer and header borders (prefer using Alpha=1.0 here)
+    ImGuiCol_TableBorderLight,      // Table inner borders (prefer using Alpha=1.0 here)
+    ImGuiCol_TableRowBg,            // Table row background (even rows)
+    ImGuiCol_TableRowBgAlt,         // Table row background (odd rows)
     ImGuiCol_TextSelectedBg,
     ImGuiCol_DragDropTarget,
     ImGuiCol_NavHighlight,          // Gamepad/keyboard: current highlighted item
@@ -1282,6 +1425,7 @@ enum ImGuiStyleVar_
     ImGuiStyleVar_ItemSpacing,         // ImVec2    ItemSpacing
     ImGuiStyleVar_ItemInnerSpacing,    // ImVec2    ItemInnerSpacing
     ImGuiStyleVar_IndentSpacing,       // float     IndentSpacing
+    ImGuiStyleVar_CellPadding,         // ImVec2    CellPadding
     ImGuiStyleVar_ScrollbarSize,       // float     ScrollbarSize
     ImGuiStyleVar_ScrollbarRounding,   // float     ScrollbarRounding
     ImGuiStyleVar_GrabMinSize,         // float     GrabMinSize
@@ -1497,6 +1641,7 @@ struct ImGuiStyle
     float       FrameBorderSize;            // Thickness of border around frames. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
     ImVec2      ItemSpacing;                // Horizontal and vertical spacing between widgets/lines.
     ImVec2      ItemInnerSpacing;           // Horizontal and vertical spacing between within elements of a composed widget (e.g. a slider and its label).
+    ImVec2      CellPadding;                // Padding within a table cell
     ImVec2      TouchExtraPadding;          // Expand reactive bounding box for touch-based system where touch position is not accurate enough. Unfortunately we don't sort widgets so priority on overlap will always be given to the first widget. So don't grow this too much!
     float       IndentSpacing;              // Horizontal indentation when e.g. entering a tree node. Generally == (FontSize + FramePadding.x*2).
     float       ColumnsMinSpacing;          // Minimum horizontal spacing between two columns. Preferably > (FramePadding.x + 1).
@@ -1512,9 +1657,10 @@ struct ImGuiStyle
     ImVec2      SelectableTextAlign;        // Alignment of selectable text. Defaults to (0.0f, 0.0f) (top-left aligned). It's generally important to keep this left-aligned if you want to lay multiple items on a same line.
     ImVec2      DisplayWindowPadding;       // Window position are clamped to be visible within the display area or monitors by at least this amount. Only applies to regular windows.
     ImVec2      DisplaySafeAreaPadding;     // If you cannot see the edges of your screen (e.g. on a TV) increase the safe area padding. Apply to popups/tooltips as well regular windows. NB: Prefer configuring your TV sets correctly!
-    float       MouseCursorScale;           // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). We apply per-monitor DPI scaling over this scale. May be removed later.
-    bool        AntiAliasedLines;           // Enable anti-aliasing on lines/borders. Disable if you are really tight on CPU/GPU.
-    bool        AntiAliasedFill;            // Enable anti-aliasing on filled shapes (rounded rectangles, circles, etc.)
+    float       MouseCursorScale;           // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). May be removed later.
+    bool        AntiAliasedLines;           // Enable anti-aliased lines/borders. Disable if you are really tight on CPU/GPU. Latched at the beginning of the frame (copied to ImDrawList).
+    bool        AntiAliasedLinesUseTex;     // Enable anti-aliased lines/borders using textures where possible. Require back-end to render with bilinear filtering. Latched at the beginning of the frame (copied to ImDrawList).
+    bool        AntiAliasedFill;            // Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Disable if you are really tight on CPU/GPU. Latched at the beginning of the frame (copied to ImDrawList).
     float       CurveTessellationTol;       // Tessellation tolerance when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
     float       CircleSegmentMaxError;      // Maximum error (in pixels) allowed when using AddCircle()/AddCircleFilled() or drawing rounded corner rectangles with no explicit segment count specified. Decrease for higher quality but more geometry.
     ImVec4      Colors[ImGuiCol_COUNT];
@@ -1766,6 +1912,29 @@ struct ImGuiPayload
     bool IsDelivery() const                 { return Delivery; }
 };
 
+// Sorting specification for one column of a table (sizeof == 8 bytes)
+struct ImGuiTableSortSpecsColumn
+{
+    ImGuiID                     ColumnUserID;       // User id of the column (if specified by a TableSetupColumn() call)
+    ImU8                        ColumnIndex;        // Index of the column
+    ImU8                        SortOrder;          // Index within parent ImGuiTableSortSpecs (always stored in order starting from 0, tables sorted on a single criteria will always have a 0 here)
+    ImGuiSortDirection          SortDirection : 8;  // ImGuiSortDirection_Ascending or ImGuiSortDirection_Descending (you can use this or SortSign, whichever is more convenient for your sort function)
+
+    ImGuiTableSortSpecsColumn() { ColumnUserID = 0; ColumnIndex = 0; SortOrder = 0; SortDirection = ImGuiSortDirection_Ascending; }
+};
+
+// Sorting specifications for a table (often handling sort specs for a single column, occasionally more)
+// Obtained by calling TableGetSortSpecs()
+struct ImGuiTableSortSpecs
+{
+    const ImGuiTableSortSpecsColumn* Specs;         // Pointer to sort spec array.
+    int                         SpecsCount;         // Sort spec count. Most often 1 unless e.g. ImGuiTableFlags_MultiSortable is enabled.
+    bool                        SpecsChanged;       // Set to true by TableGetSortSpecs() call if the specs have changed since the previous call. Use this to sort again!
+    ImU64                       ColumnsMask;        // Set to the mask of column indexes included in the Specs array. e.g. (1 << N) when column N is sorted.
+
+    ImGuiTableSortSpecs()       { Specs = NULL; SpecsCount = 0; SpecsChanged = false; ColumnsMask = 0x00; }
+};
+
 //-----------------------------------------------------------------------------
 // Obsolete functions (Will be removed! Read 'API BREAKING CHANGES' section in imgui.cpp for details)
 // Please keep your copy of dear imgui up to date! Occasionally set '#define IMGUI_DISABLE_OBSOLETE_FUNCTIONS' in imconfig.h to stay ahead.
@@ -2000,6 +2169,11 @@ struct ImColor
 // Hold a series of drawing commands. The user provides a renderer for ImDrawData which essentially contains an array of ImDrawList.
 //-----------------------------------------------------------------------------
 
+// The maximum line width to bake anti-aliased textures for. Build atlas with ImFontAtlasFlags_NoBakedLines to disable baking.
+#ifndef IM_DRAWLIST_TEX_LINES_WIDTH_MAX
+#define IM_DRAWLIST_TEX_LINES_WIDTH_MAX     (63)
+#endif
+
 // ImDrawCallback: Draw callbacks for advanced uses [configurable type: override in imconfig.h]
 // NB: You most likely do NOT need to use draw callbacks just to create your own widget or customized UI rendering,
 // you can poke into the draw list for that! Draw callback may be useful for example to:
@@ -2096,12 +2270,15 @@ enum ImDrawCornerFlags_
     ImDrawCornerFlags_All       = 0xF     // In your function calls you may use ~0 (= all bits sets) instead of ImDrawCornerFlags_All, as a convenience
 };
 
+// Flags for ImDrawList. Those are set automatically by ImGui:: functions from ImGuiIO settings, and generally not manipulated directly.
+// It is however possible to temporarily alter flags between calls to ImDrawList:: functions.
 enum ImDrawListFlags_
 {
-    ImDrawListFlags_None             = 0,
-    ImDrawListFlags_AntiAliasedLines = 1 << 0,  // Lines are anti-aliased (*2 the number of triangles for 1.0f wide line, otherwise *3 the number of triangles)
-    ImDrawListFlags_AntiAliasedFill  = 1 << 1,  // Filled shapes have anti-aliased edges (*2 the number of vertices)
-    ImDrawListFlags_AllowVtxOffset   = 1 << 2   // Can emit 'VtxOffset > 0' to allow large meshes. Set when 'ImGuiBackendFlags_RendererHasVtxOffset' is enabled.
+    ImDrawListFlags_None                    = 0,
+    ImDrawListFlags_AntiAliasedLines        = 1 << 0,  // Enable anti-aliased lines/borders (*2 the number of triangles for 1.0f wide line or lines thin enough to be drawn using textures, otherwise *3 the number of triangles)
+    ImDrawListFlags_AntiAliasedLinesUseTex  = 1 << 1,  // Enable anti-aliased lines/borders using textures when possible. Require back-end to render with bilinear filtering.
+    ImDrawListFlags_AntiAliasedFill         = 1 << 2,  // Enable anti-aliased edge around filled shapes (rounded rectangles, circles).
+    ImDrawListFlags_AllowVtxOffset          = 1 << 3   // Can emit 'VtxOffset > 0' to allow large meshes. Set when 'ImGuiBackendFlags_RendererHasVtxOffset' is enabled.
 };
 
 // Draw command list
@@ -2316,11 +2493,13 @@ struct ImFontAtlasCustomRect
     bool IsPacked() const           { return X != 0xFFFF; }
 };
 
+// Flags for ImFontAtlas build
 enum ImFontAtlasFlags_
 {
     ImFontAtlasFlags_None               = 0,
     ImFontAtlasFlags_NoPowerOfTwoHeight = 1 << 0,   // Don't round the height to next power of two
-    ImFontAtlasFlags_NoMouseCursors     = 1 << 1    // Don't build software mouse cursors into the atlas
+    ImFontAtlasFlags_NoMouseCursors     = 1 << 1,   // Don't build software mouse cursors into the atlas (save a little texture memory)
+    ImFontAtlasFlags_NoBakedLines       = 1 << 2    // Don't build thick line textures into the atlas (save a little texture memory). The AntiAliasedLinesUseTex features uses them, otherwise they will be rendered using polygons (more expensive for CPU/GPU).
 };
 
 // Load and rasterize multiple TTF/OTF fonts into a same texture. The font atlas will build a single texture holding:
@@ -2394,7 +2573,7 @@ struct ImFontAtlas
     // Note: this API may be redesigned later in order to support multi-monitor varying DPI settings.
     IMGUI_API int               AddCustomRectRegular(int width, int height);
     IMGUI_API int               AddCustomRectFontGlyph(ImFont* font, ImWchar id, int width, int height, float advance_x, const ImVec2& offset = ImVec2(0, 0));
-    const ImFontAtlasCustomRect*GetCustomRectByIndex(int index) const { if (index < 0) return NULL; return &CustomRects[index]; }
+    ImFontAtlasCustomRect*      GetCustomRectByIndex(int index) { IM_ASSERT(index >= 0); return &CustomRects[index]; }
 
     // [Internal]
     IMGUI_API void              CalcCustomRectUV(const ImFontAtlasCustomRect* rect, ImVec2* out_uv_min, ImVec2* out_uv_max) const;
@@ -2420,8 +2599,12 @@ struct ImFontAtlas
     ImVec2                      TexUvWhitePixel;    // Texture coordinates to a white pixel
     ImVector<ImFont*>           Fonts;              // Hold all the fonts returned by AddFont*. Fonts[0] is the default font upon calling ImGui::NewFrame(), use ImGui::PushFont()/PopFont() to change the current font.
     ImVector<ImFontAtlasCustomRect> CustomRects;    // Rectangles for packing custom texture data into the atlas.
-    ImVector<ImFontConfig>      ConfigData;         // Internal data
-    int                         CustomRectIds[1];   // Identifiers of custom texture rectangle used by ImFontAtlas/ImDrawList
+    ImVector<ImFontConfig>      ConfigData;         // Configuration data
+    ImVec4                      TexUvLines[IM_DRAWLIST_TEX_LINES_WIDTH_MAX + 1];  // UVs for baked anti-aliased lines
+
+    // [Internal] Packing data
+    int                         PackIdMouseCursors; // Custom texture rectangle ID for white pixel and mouse cursors
+    int                         PackIdLines;        // Custom texture rectangle ID for baked anti-aliased lines
 
 #ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
     typedef ImFontAtlasCustomRect    CustomRect;         // OBSOLETED in 1.72+
